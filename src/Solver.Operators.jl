@@ -5,7 +5,7 @@ using ..Utils
 
 export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct_velocity!
 
-@kernel function velocity_boundary_kernel!(ux, uy, u_in, solid, ibm_x, ibm_y, nx, ny, dx, dy, dt, um, T)
+@kernel function velocity_boundary_kernel!(ux, uy, temp, u_in, temp_in, temp_wall, temp_cylinder, solid, ibm_x, ibm_y, nx, ny, dx, dy, dt, um, T)
     ix, iy = @index(Global, NTuple)
     ii = ix + 3
     jj = iy + 3
@@ -18,6 +18,9 @@ export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct
         uy[1, jj] = T(0.0)
         uy[2, jj] = T(0.0)
         uy[3, jj] = T(0.0)
+        temp[1, jj] = temp_in[iy]
+        temp[2, jj] = temp_in[iy]
+        temp[3, jj] = temp_in[iy]
     elseif ix == nx
         ux[nx+4, jj] = ux[nx+4, jj] - um * dt * (-ux[nx+3, jj] + ux[nx+4, jj]) / dx
         ux[nx+5, jj] = ux[nx+5, jj] - um * dt * (-ux[nx+4, jj] + ux[nx+5, jj]) / dx
@@ -25,6 +28,9 @@ export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct
         uy[nx+4, jj] = uy[nx+4, jj] - um * dt * (-uy[nx+3, jj] + uy[nx+4, jj]) / dx
         uy[nx+5, jj] = uy[nx+5, jj] - um * dt * (-uy[nx+4, jj] + uy[nx+5, jj]) / dx
         uy[nx+6, jj] = uy[nx+6, jj] - um * dt * (-uy[nx+5, jj] + uy[nx+6, jj]) / dx
+        temp[nx+4, jj] = temp[nx+4, jj] - um * dt * (-temp[nx+3, jj] + temp[nx+4, jj]) / dx
+        temp[nx+5, jj] = temp[nx+5, jj] - um * dt * (-temp[nx+4, jj] + temp[nx+5, jj]) / dx
+        temp[nx+6, jj] = temp[nx+6, jj] - um * dt * (-temp[nx+5, jj] + temp[nx+6, jj]) / dx
     end
 
     if iy == 1
@@ -34,6 +40,9 @@ export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct
         uy[ii, 1] = -uy[ii, 5]
         uy[ii, 2] = -uy[ii, 4]
         uy[ii, 3] = T(0.0)
+        temp[ii, 1] = T(2) * temp_wall - temp[ii, 6]
+        temp[ii, 2] = T(2) * temp_wall - temp[ii, 5]
+        temp[ii, 3] = T(2) * temp_wall - temp[ii, 4]
     elseif iy == ny
         ux[ii, ny+4] = -ux[ii, ny+3]
         ux[ii, ny+5] = -ux[ii, ny+2]
@@ -42,20 +51,27 @@ export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct
         uy[ii, ny+4] = -uy[ii, ny+2]
         uy[ii, ny+5] = -uy[ii, ny+1]
         uy[ii, ny+6] = -uy[ii, ny]
+        temp[ii, ny+4] = T(2) * temp_wall - temp[ii, ny+3]
+        temp[ii, ny+5] = T(2) * temp_wall - temp[ii, ny+2]
+        temp[ii, ny+6] = T(2) * temp_wall - temp[ii, ny+1]
     end
 
     if ix == 1 && iy == 1
         ux[1:3, 1:3] .= T(0.0)
         uy[1:3, 1:3] .= T(0.0)
+        temp[1:3, 1:3] .= T(2) * temp_wall - temp[4, 4]
     elseif ix == 1 && iy == ny
         ux[1:3, ny+4:ny+6] .= T(0.0)
         uy[1:3, ny+4:ny+6] .= T(0.0)
+        temp[1:3, ny+4:ny+6] .= T(2) * temp_wall - temp[4, ny+3]
     elseif ix == nx && iy == 1
         ux[nx+4:nx+6, 1:3] .= T(0.0)
         uy[nx+4:nx+6, 1:3] .= T(0.0)
+        temp[nx+4:nx+6, 1:3] .= T(2) * temp_wall - temp[nx+3, 4]
     elseif ix == nx && iy == ny
         ux[nx+4:nx+6, ny+4:ny+6] .= T(0.0)
         uy[nx+4:nx+6, ny+4:ny+6] .= T(0.0)
+        temp[nx+4:nx+6, ny+4:ny+6] .= T(2) * temp_wall - temp[nx+3, ny+3]
     end
 
     if solid[ii, jj] == 1 || solid[ii+1, jj] == 1
@@ -66,23 +82,26 @@ export velocity_boundary!, compute_explicit_terms!, build_pressure_rhs!, correct
         ibm_y[ii, jj] += uy[ii, jj] * dx * dy / dt
         uy[ii, jj] = T(0.0)
     end
+    if solid[ii, jj] == 1
+        temp[ii, jj] = temp_cylinder
+    end
 
 end
 
-function velocity_boundary!(param::Parameters, ux, uy, field)
+function velocity_boundary!(param::Parameters, ux, uy, temp, field)
     nx, ny = param.space.num_grids
     dx, dy = param.space.dx, param.space.dy
     dt = param.time.dt
     T = param.Ttype
     um = sum(ux[nx+3, 4:ny+3]) / ny
 
-    velocity_boundary_kernel!(param.dev, Int.(param.groupsize))(ux, uy, field.u_in, field.solid, field.ibm_x, field.ibm_y, nx, ny, dx, dy, dt, um, T; ndrange=(nx, ny))
+    velocity_boundary_kernel!(param.dev, Int.(param.groupsize))(ux, uy, temp, field.u_in, field.temp_in, param.cylinder.temp_wall, param.cylinder.temp_cylinder, field.solid, field.ibm_x, field.ibm_y, nx, ny, dx, dy, dt, um, T; ndrange=(nx, ny))
     KernelAbstractions.synchronize(param.dev)
 end
 
 # ============================================================================================
 
-@kernel function kernel_explicit_terms!(ux_s, uy_s, ux, uy, ν, dx, dy, dt, nx, ny, T)
+@kernel function kernel_explicit_terms!(ux_s, uy_s, temp_s, ux, uy, temp, ν, α, dx, dy, dt, nx, ny, T)
 
     i, j = @index(Global, NTuple)
     ii = i + 3
@@ -154,14 +173,31 @@ end
 
     uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + ν * lap)
 
+    adtx = (
+        (-ux[ii-2, jj] + T(9) * ux[ii-1, jj] + T(9) * ux[ii, jj] - ux[ii+1, jj])
+        *
+        (temp[ii-2, jj] - T(8) * temp[ii-1, jj] + T(8) * temp[ii+1, jj] - temp[ii+2, jj])
+    ) / (T(192) * dx)
+    adty = (
+        (-uy[ii, jj-2] + T(9) * uy[ii, jj-1] + T(9) * uy[ii, jj] - uy[ii, jj+1])
+        *
+        (temp[ii, jj-2] - T(8) * temp[ii, jj-1] + T(8) * temp[ii, jj+1] - temp[ii, jj+2])
+    ) / (T(192) * dy)
+    adt = adtx + adty
+
+    difx = (-temp[ii+2, jj] + T(16) * temp[ii+1, jj] - T(30.0) * temp[ii, jj] + T(16) * temp[ii-1, jj] - temp[ii-2, jj]) / (T(12) * dx2)
+    dify = (-temp[ii, jj+2] + T(16) * temp[ii, jj+1] - T(30.0) * temp[ii, jj] + T(16) * temp[ii, jj-1] - temp[ii, jj-2]) / (T(12) * dy2)
+    lap = difx + dify
+
+    temp_s[ii, jj] = temp[ii, jj] + dt * (-adt + α * lap)
 end
 
 function compute_explicit_terms!(param::Parameters, field::Fields)
     nx, ny = param.space.num_grids
     groupsize = Int.(param.groupsize)
     kernel_explicit_terms!(param.dev, groupsize)(
-        field.ux_s, field.uy_s, field.ux, field.uy,
-        param.fdm.ν, param.space.dx, param.space.dy, param.time.dt,
+        field.ux_s, field.uy_s, field.temp_s, field.ux, field.uy, field.temp,
+        param.fdm.ν, param.fdm.α, param.space.dx, param.space.dy, param.time.dt,
         nx, ny, param.Ttype;
         ndrange=(nx, ny),
     )
@@ -231,8 +267,9 @@ function correct_velocity!(param::Parameters, field::Fields)
     kernel_correct_uy!(param.dev, groupsize)(
         field.uy, field.uy_s, field.p, scale, param.space.dy, nx, ny, param.Ttype; ndrange=(nx, ny)
     )
+    field.temp .= field.temp_s
     KernelAbstractions.synchronize(param.dev)
-    velocity_boundary!(param, field.ux, field.uy, field)
+    velocity_boundary!(param, field.ux, field.uy, field.temp, field)
     KernelAbstractions.synchronize(param.dev)
 end
 

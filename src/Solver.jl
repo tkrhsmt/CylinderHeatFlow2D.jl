@@ -30,7 +30,7 @@ function step!(param::Parameters, fields::Fields)
     compute_explicit_terms!(param, fields)
 
     # Fill ghost cells for predicted velocity
-    velocity_boundary!(param, fields.ux_s, fields.uy_s, fields)
+    velocity_boundary!(param, fields.ux_s, fields.uy_s, fields.temp_s, fields)
 
     # Build pressure Poisson equation RHS and solve for pressure
     build_pressure_rhs!(param, fields)
@@ -56,7 +56,7 @@ function time_march!(param::Parameters, fields::Fields)
     u_in = maximum(abs, Array(fields.u_in))
     d = param.cylinder.d
     scale = T(0.5) * u_in^2 * d
-    velocity_boundary!(param, fields.ux, fields.uy, fields)
+    velocity_boundary!(param, fields.ux, fields.uy, fields.temp, fields)
 
     drag_stage1, lift_stage1 = zero(T), zero(T)
     drag_stage2, lift_stage2 = zero(T), zero(T)
@@ -66,6 +66,7 @@ function time_march!(param::Parameters, fields::Fields)
 
         fields.ux_mem .= fields.ux
         fields.uy_mem .= fields.uy
+        fields.temp_mem .= fields.temp
 
         fields.ibm_x .= T(0)
         fields.ibm_y .= T(0)
@@ -82,6 +83,7 @@ function time_march!(param::Parameters, fields::Fields)
         # Update the fields using the RK3 formula
         fields.ux .= (T(3) * fields.ux_mem .+ fields.ux) / T(4)
         fields.uy .= (T(3) * fields.uy_mem .+ fields.uy) / T(4)
+        fields.temp .= (T(3) * fields.temp_mem .+ fields.temp) / T(4)
 
         drag_stage2 = sum(fields.ibm_x)
         lift_stage2 = sum(fields.ibm_y)
@@ -93,6 +95,7 @@ function time_march!(param::Parameters, fields::Fields)
         # Update the fields using the RK3 formula
         fields.ux .= (fields.ux_mem .+ T(2) * fields.ux) / T(3)
         fields.uy .= (fields.uy_mem .+ T(2) * fields.uy) / T(3)
+        fields.temp .= (fields.temp_mem .+ T(2) * fields.temp) / T(3)
 
         drag_stage3 = sum(fields.ibm_x)
         lift_stage3 = sum(fields.ibm_y)

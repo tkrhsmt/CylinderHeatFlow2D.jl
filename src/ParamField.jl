@@ -177,6 +177,7 @@ Finite-difference and physical parameters used by the solver.
 """
 struct FDMParameters{T<:AbstractFloat,PS<:FFTPoissonSolver}
     ν::T
+    α::T
     pressure_solver::PS
 end
 
@@ -187,10 +188,12 @@ struct CylinderParameters{T<:AbstractFloat}
     cy::T
     r::T
     d::T
+    temp_wall::T
+    temp_cylinder::T
 
-    function CylinderParameters(cx::T, cy::T, r::T) where {T<:AbstractFloat}
+    function CylinderParameters(cx::T, cy::T, r::T, temp_wall::T, temp_cylinder::T) where {T<:AbstractFloat}
         d = T(2) * r
-        new{T}(cx, cy, r, d)
+        new{T}(cx, cy, r, d, temp_wall, temp_cylinder)
     end
 end
 
@@ -216,9 +219,12 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
         num_time_total::I,
         num_time_interval::I,
         ν::T,
+        α::T,
         cx::T,
         cy::T,
         r::T;
+        temp_wall::T=T(1.0),
+        temp_cylinder::T=T(10.0),
         groupsize::NTuple{2,I}=(I(16), I(16)),
         fftw_num_threads::I=I(Threads.nthreads()),
         dev::KernelAbstractions.Backend=KernelAbstractions.CPU(),
@@ -237,8 +243,8 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
             fftplan_backend,
             fftw_num_threads,
         )
-        fdm = FDMParameters(ν, pressure_solver)
-        cylinder = CylinderParameters(cx, cy, r)
+        fdm = FDMParameters(ν, α, pressure_solver)
+        cylinder = CylinderParameters(cx, cy, r, temp_wall, temp_cylinder)
 
         new{T,I,typeof(ArrayType)}(
             space,
@@ -265,13 +271,17 @@ struct Fields{A}
     ux::A
     uy::A
     p::A
+    temp::A
     ux_s::A
     uy_s::A
+    temp_s::A
     rhs::A
     solid::A
     u_in::A
+    temp_in::A
     ux_mem::A
     uy_mem::A
+    temp_mem::A
     ibm_x::A
     ibm_y::A
     C::AbstractArray
@@ -297,10 +307,11 @@ struct Fields{A}
         zeros2() = A(zeros(T, dims))
         rhs = A(zeros(T, nx, ny))
         u_in = A(zeros(T, ny))
+        temp_in = A(zeros(T, ny))
         solid = A(zeros(I, nx + 6, ny + 6))
         C = Array(zeros(T, 2))
 
-        new{A}(x, y, zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), rhs, solid, u_in, zeros2(), zeros2(), zeros2(), zeros2(), C)
+        new{A}(x, y, zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), rhs, solid, u_in, temp_in, zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), C)
     end
 end
 

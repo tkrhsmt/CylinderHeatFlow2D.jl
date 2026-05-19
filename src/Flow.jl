@@ -29,6 +29,8 @@ function initialize_field(param::Parameters)
     field.u_in .= T(1.0)  # Set the inlet velocity (for example, uniform flow)
     field.ux .= T(1.0)   # Initialize velocity fields to ux
     field.uy .= T(0.0)   # Initialize velocity fields to uy
+    field.temp .= T(0.0) # Initialize temperature field to 0
+    field.temp_in .= param.cylinder.temp_wall # Set the inlet temperature to the wall temperature
 
     return field
 end
