@@ -1,0 +1,13 @@
+name = "CylinderHeatFlow2D"
+uuid = "dcb6a947-b56c-4928-88be-58f07c335b8a"
+authors = ["T. Hashimoto"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
