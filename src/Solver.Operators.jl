@@ -101,7 +101,7 @@ end
 
 # ============================================================================================
 
-@kernel function kernel_explicit_terms!(ux_s, uy_s, temp_s, ux, uy, temp, ν, α, dx, dy, dt, nx, ny, T)
+@kernel function kernel_explicit_terms!(ux_s, uy_s, temp_s, ux, uy, temp, μ, α, β, g, dx, dy, dt, nx, ny, T, T_in, ρ0)
 
     i, j = @index(Global, NTuple)
     ii = i + 3
@@ -139,7 +139,7 @@ end
     dify = (-ux[ii, jj+2] + T(16) * ux[ii, jj+1] - T(30.0) * ux[ii, jj] + T(16) * ux[ii, jj-1] - ux[ii, jj-2]) / (T(12) * dy2)
     lap = difx + dify
 
-    ux_s[ii, jj] = ux[ii, jj] + dt * (-adv + ν * lap)
+    ux_s[ii, jj] = ux[ii, jj] + dt * (-adv + μ(temp[ii, jj])/ρ0 * lap - β(temp[ii, jj]) * g * (temp[ii, jj] - T_in))
 
     # y-direction advection term using central difference
     advx_1 = (
@@ -171,7 +171,7 @@ end
     dify = (-uy[ii, jj+2] + T(16) * uy[ii, jj+1] - T(30.0) * uy[ii, jj] + T(16) * uy[ii, jj-1] - uy[ii, jj-2]) / (T(12) * dy2)
     lap = difx + dify
 
-    uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + ν * lap)
+    uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + μ(temp[ii, jj])/ρ0 * lap)
 
     adtx = (
         (-ux[ii-2, jj] + T(9) * ux[ii-1, jj] + T(9) * ux[ii, jj] - ux[ii+1, jj])
@@ -197,8 +197,8 @@ function compute_explicit_terms!(param::Parameters, field::Fields)
     groupsize = Int.(param.groupsize)
     kernel_explicit_terms!(param.dev, groupsize)(
         field.ux_s, field.uy_s, field.temp_s, field.ux, field.uy, field.temp,
-        param.fdm.ν, param.fdm.α, param.space.dx, param.space.dy, param.time.dt,
-        nx, ny, param.Ttype;
+        param.fdm.μ, param.fdm.α, param.fdm.β, param.fdm.g, param.space.dx, param.space.dy, param.time.dt,
+        nx, ny, param.Ttype, param.cylinder.temp_wall, param.fdm.ρ0,
         ndrange=(nx, ny),
     )
     KernelAbstractions.synchronize(param.dev)
@@ -226,7 +226,7 @@ the staggered velocity field.
 """
 function build_pressure_rhs!(param::Parameters, field::Fields)
     nx, ny = param.space.num_grids
-    scale = param.Ttype(1.0) / param.time.dt
+    scale = param.fdm.ρ0 / param.time.dt
     kernel_build_pressure_rhs!(param.dev, Int.(param.groupsize))(
         field.rhs, field.ux_s, field.uy_s, scale, param.space.dx, param.space.dy, nx, ny, param.Ttype; ndrange=(nx, ny)
     )
@@ -260,7 +260,7 @@ updated velocity fields.
 function correct_velocity!(param::Parameters, field::Fields)
     nx, ny = param.space.num_grids
     groupsize = Int.(param.groupsize)
-    scale = param.time.dt / param.Ttype(1.0)
+    scale = param.time.dt / param.fdm.ρ0
     kernel_correct_ux!(param.dev, groupsize)(
         field.ux, field.ux_s, field.p, scale, param.space.dx, nx, ny, param.Ttype; ndrange=(nx, ny)
     )

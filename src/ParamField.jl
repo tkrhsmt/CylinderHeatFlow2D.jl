@@ -179,6 +179,10 @@ struct FDMParameters{T<:AbstractFloat,PS<:FFTPoissonSolver}
     ν::T
     α::T
     pressure_solver::PS
+    μ::Function
+    β::Function
+    g::T
+    ρ0::T
 end
 
 # ============================================================================================
@@ -219,12 +223,16 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
         num_time_total::I,
         num_time_interval::I,
         ν::T,
+        ρ::T,
         α::T,
         cx::T,
         cy::T,
         r::T;
         temp_wall::T=T(1.0),
         temp_cylinder::T=T(10.0),
+        μ::Function=(x) -> ν,
+        β::Function=(x) -> T(0.0),
+        g::T=T(9.80665),
         groupsize::NTuple{2,I}=(I(16), I(16)),
         fftw_num_threads::I=I(Threads.nthreads()),
         dev::KernelAbstractions.Backend=KernelAbstractions.CPU(),
@@ -243,7 +251,7 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
             fftplan_backend,
             fftw_num_threads,
         )
-        fdm = FDMParameters(ν, α, pressure_solver)
+        fdm = FDMParameters(ν, α, pressure_solver, μ, β, g, ρ)
         cylinder = CylinderParameters(cx, cy, r, temp_wall, temp_cylinder)
 
         new{T,I,typeof(ArrayType)}(
