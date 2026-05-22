@@ -9,6 +9,7 @@ export SpaceParameters, TimeParameters, FDMParameters
 export FFTPoissonSolver
 export Parameters, Fields
 export AbstractFFTBackendPlan, FFTWPlanBackend, CUFFTPlanBackend
+export ConstantProperty, PolynomialProperty
 
 abstract type AbstractFFTBackendPlan end
 """Pressure-solver backend based on `FFTW` plans for CPU arrays."""
@@ -82,12 +83,12 @@ end
 
 FFT-based Poisson solver used in the pressure projection step.
 """
-struct FFTPoissonSolver{T<:AbstractFloat,I<:Integer}
-    backend::AbstractFFTBackendPlan
-    plan_f # Plan for pressure
-    kx::AbstractArray
-    ky::AbstractArray
-    inv_laplacian::AbstractArray
+struct FFTPoissonSolver{T<:AbstractFloat,I<:Integer,B<:AbstractFFTBackendPlan,P,AKX<:AbstractArray,AKY<:AbstractArray,AIL<:AbstractArray}
+    backend::B
+    plan_f::P
+    kx::AKX
+    ky::AKY
+    inv_laplacian::AIL
     inv_norm::T
     fftw_num_threads::I
     kxn::I
@@ -126,7 +127,9 @@ struct FFTPoissonSolver{T<:AbstractFloat,I<:Integer}
 
         planf = Utils.FFT.plan_redft00_fftw(T, (nx, ny))
 
-        new{T,I}(backend, planf, kx, ky, inv_laplacian, inv_norm, nthreads_fftw, kxn, kyn)
+        new{T,I,typeof(backend),typeof(planf),typeof(kx),typeof(ky),typeof(inv_laplacian)}(
+            backend, planf, kx, ky, inv_laplacian, inv_norm, nthreads_fftw, kxn, kyn,
+        )
     end
 
     function FFTPoissonSolver(
@@ -164,7 +167,9 @@ struct FFTPoissonSolver{T<:AbstractFloat,I<:Integer}
 
         planf = Utils.FFT.plan_redft00_cuda(T, (nx, ny))
 
-        new{T,I}(backend, planf, kx, ky, inv_laplacian, inv_norm, nthreads_fftw, kxn, kyn)
+        new{T,I,typeof(backend),typeof(planf),typeof(kx),typeof(ky),typeof(inv_laplacian)}(
+            backend, planf, kx, ky, inv_laplacian, inv_norm, nthreads_fftw, kxn, kyn,
+        )
     end
 end
 
@@ -175,9 +180,47 @@ end
 
 Finite-difference and physical parameters used by the solver.
 """
-struct FDMParameters{T<:AbstractFloat,PS<:FFTPoissonSolver}
+struct FDMParameters{T<:AbstractFloat,PS<:FFTPoissonSolver,Fμ,Fβ}
     ν::T
+    α::T
     pressure_solver::PS
+    μ::Fμ
+    β::Fβ
+    g::T
+    ρ0::T
+end
+
+# ============================================================================================
+
+"""
+    ConstantProperty(value)
+
+GPU-friendly callable material-property model that always returns `value`.
+"""
+struct ConstantProperty{T<:AbstractFloat}
+    value::T
+end
+
+@inline function (p::ConstantProperty)(x)
+    return convert(typeof(x), p.value)
+end
+
+"""
+    PolynomialProperty(coeffs...)
+
+GPU-friendly callable polynomial model evaluated by `evalpoly`.
+
+Coefficients must be passed in ascending order:
+`c0, c1, c2, ...` for `c0 + c1*x + c2*x^2 + ...`.
+"""
+struct PolynomialProperty{T<:AbstractFloat,N}
+    coeffs::NTuple{N,T}
+end
+
+PolynomialProperty(coeffs::Vararg{T,N}) where {T<:AbstractFloat,N} = PolynomialProperty{T,N}(coeffs)
+
+@inline function (p::PolynomialProperty{T,N})(x) where {T<:AbstractFloat,N}
+    return evalpoly(x, p.coeffs)
 end
 
 # ============================================================================================
@@ -187,23 +230,25 @@ struct CylinderParameters{T<:AbstractFloat}
     cy::T
     r::T
     d::T
+    temp_wall::T
+    temp_cylinder::T
 
-    function CylinderParameters(cx::T, cy::T, r::T) where {T<:AbstractFloat}
+    function CylinderParameters(cx::T, cy::T, r::T, temp_wall::T, temp_cylinder::T) where {T<:AbstractFloat}
         d = T(2) * r
-        new{T}(cx, cy, r, d)
+        new{T}(cx, cy, r, d, temp_wall, temp_cylinder)
     end
 end
 
 # ============================================================================================
 
-struct Parameters{T<:AbstractFloat,I<:Integer,AT}
+struct Parameters{T<:AbstractFloat,I<:Integer,PS<:FFTPoissonSolver,Fμ,Fβ,D,AT}
     space::SpaceParameters{T,I}
     time::TimeParameters{T,I}
-    fdm::FDMParameters{T,FFTPoissonSolver{T,I}}
+    fdm::FDMParameters{T,PS,Fμ,Fβ}
     cylinder::CylinderParameters{T}
     groupsize::NTuple{2,I}
     fftw_num_threads::I
-    dev::KernelAbstractions.Backend
+    dev::D
     Ttype::Type{T}
     Itype::Type{I}
     ArrayType::AT
@@ -216,13 +261,20 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
         num_time_total::I,
         num_time_interval::I,
         ν::T,
+        ρ::T,
+        α::T,
         cx::T,
         cy::T,
         r::T;
+        temp_wall::T=T(1.0),
+        temp_cylinder::T=T(10.0),
+        μ=ConstantProperty(ν),
+        β=ConstantProperty(zero(T)),
+        g::T=T(9.80665),
         groupsize::NTuple{2,I}=(I(16), I(16)),
         fftw_num_threads::I=I(Threads.nthreads()),
-        dev::KernelAbstractions.Backend=KernelAbstractions.CPU(),
-        fftplan_backend::AbstractFFTBackendPlan=FFTWPlanBackend(),
+        dev=KernelAbstractions.CPU(),
+        fftplan_backend=FFTWPlanBackend(),
         ArrayType::Type=Array,
         debug::Bool=false,
     ) where {T<:AbstractFloat,I<:Integer}
@@ -237,10 +289,10 @@ struct Parameters{T<:AbstractFloat,I<:Integer,AT}
             fftplan_backend,
             fftw_num_threads,
         )
-        fdm = FDMParameters(ν, pressure_solver)
-        cylinder = CylinderParameters(cx, cy, r)
+        fdm = FDMParameters(ν, α, pressure_solver, μ, β, g, ρ)
+        cylinder = CylinderParameters(cx, cy, r, temp_wall, temp_cylinder)
 
-        new{T,I,typeof(ArrayType)}(
+        new{T,I,typeof(pressure_solver),typeof(μ),typeof(β),typeof(dev),typeof(ArrayType)}(
             space,
             time,
             fdm,
@@ -259,22 +311,26 @@ end
 
 # ============================================================================================
 
-struct Fields{A}
-    x::A
-    y::A
-    ux::A
-    uy::A
-    p::A
-    ux_s::A
-    uy_s::A
-    rhs::A
-    solid::A
-    u_in::A
-    ux_mem::A
-    uy_mem::A
-    ibm_x::A
-    ibm_y::A
-    C::AbstractArray
+struct Fields{V<:AbstractVector,M<:AbstractMatrix,R<:AbstractMatrix,S<:AbstractMatrix,CV<:AbstractVector}
+    x::V
+    y::V
+    ux::M
+    uy::M
+    p::M
+    temp::M
+    ux_s::M
+    uy_s::M
+    temp_s::M
+    rhs::R
+    solid::S
+    u_in::V
+    temp_in::V
+    ux_mem::M
+    uy_mem::M
+    temp_mem::M
+    ibm_x::M
+    ibm_y::M
+    C::CV
 
     function Fields(param::Parameters{T,I}) where {T<:AbstractFloat,I<:Integer}
         nx, ny = param.space.num_grids
@@ -297,10 +353,33 @@ struct Fields{A}
         zeros2() = A(zeros(T, dims))
         rhs = A(zeros(T, nx, ny))
         u_in = A(zeros(T, ny))
+        temp_in = A(zeros(T, ny))
         solid = A(zeros(I, nx + 6, ny + 6))
         C = Array(zeros(T, 2))
 
-        new{A}(x, y, zeros2(), zeros2(), zeros2(), zeros2(), zeros2(), rhs, solid, u_in, zeros2(), zeros2(), zeros2(), zeros2(), C)
+        ux = zeros2()
+        uy = zeros2()
+        p = zeros2()
+        temp = zeros2()
+        ux_s = zeros2()
+        uy_s = zeros2()
+        temp_s = zeros2()
+        ux_mem = zeros2()
+        uy_mem = zeros2()
+        temp_mem = zeros2()
+        ibm_x = zeros2()
+        ibm_y = zeros2()
+
+        new{
+            typeof(x),
+            typeof(ux),
+            typeof(rhs),
+            typeof(solid),
+            typeof(C),
+        }(
+            x, y, ux, uy, p, temp, ux_s, uy_s, temp_s, rhs, solid, u_in, temp_in,
+            ux_mem, uy_mem, temp_mem, ibm_x, ibm_y, C,
+        )
     end
 end
 
