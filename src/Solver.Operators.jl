@@ -9,10 +9,17 @@ function velocity_boundary!(param::Parameters, ux, uy, temp, field)
     nx, ny = param.space.num_grids
     dx, dy = param.space.dx, param.space.dy
     dt = param.time.dt
-    T = param.Ttype
     um = sum(ux[nx+3, 4:ny+3]) / ny
     temp_wall = param.cylinder.temp_wall
     temp_cylinder = param.cylinder.temp_cylinder
+    u_in = field.u_in
+    temp_in = field.temp_in
+    solid = field.solid
+    ibm_x = field.ibm_x
+    ibm_y = field.ibm_y
+    z = zero(dx)
+    c2 = oftype(dx, 2)
+    solid_marker = one(eltype(solid))
 
     Utils.Parallel.foraxes(param.dev, Int.(param.groupsize), (nx, ny)) do ix, iy
 
@@ -20,15 +27,15 @@ function velocity_boundary!(param::Parameters, ux, uy, temp, field)
         jj = iy + 3
 
         if ix == 1
-            ux[1, jj] = field.u_in[iy]
-            ux[2, jj] = field.u_in[iy]
-            ux[3, jj] = field.u_in[iy]
-            uy[1, jj] = T(0.0)
-            uy[2, jj] = T(0.0)
-            uy[3, jj] = T(0.0)
-            temp[1, jj] = field.temp_in[iy]
-            temp[2, jj] = field.temp_in[iy]
-            temp[3, jj] = field.temp_in[iy]
+            ux[1, jj] = u_in[iy]
+            ux[2, jj] = u_in[iy]
+            ux[3, jj] = u_in[iy]
+            uy[1, jj] = z
+            uy[2, jj] = z
+            uy[3, jj] = z
+            temp[1, jj] = temp_in[iy]
+            temp[2, jj] = temp_in[iy]
+            temp[3, jj] = temp_in[iy]
         elseif ix == nx
             ux[nx+4, jj] = ux[nx+4, jj] - um * dt * (-ux[nx+3, jj] + ux[nx+4, jj]) / dx
             ux[nx+5, jj] = ux[nx+5, jj] - um * dt * (-ux[nx+4, jj] + ux[nx+5, jj]) / dx
@@ -47,78 +54,150 @@ function velocity_boundary!(param::Parameters, ux, uy, temp, field)
             ux[ii, 3] = -ux[ii, 4]
             uy[ii, 1] = -uy[ii, 5]
             uy[ii, 2] = -uy[ii, 4]
-            uy[ii, 3] = T(0.0)
-            temp[ii, 1] = T(2) * temp_wall - temp[ii, 6]
-            temp[ii, 2] = T(2) * temp_wall - temp[ii, 5]
-            temp[ii, 3] = T(2) * temp_wall - temp[ii, 4]
+            uy[ii, 3] = z
+            temp[ii, 1] = c2 * temp_wall - temp[ii, 6]
+            temp[ii, 2] = c2 * temp_wall - temp[ii, 5]
+            temp[ii, 3] = c2 * temp_wall - temp[ii, 4]
         elseif iy == ny
             ux[ii, ny+4] = -ux[ii, ny+3]
             ux[ii, ny+5] = -ux[ii, ny+2]
             ux[ii, ny+6] = -ux[ii, ny+1]
-            uy[ii, ny+3] = T(0.0)
+            uy[ii, ny+3] = z
             uy[ii, ny+4] = -uy[ii, ny+2]
             uy[ii, ny+5] = -uy[ii, ny+1]
             uy[ii, ny+6] = -uy[ii, ny]
-            temp[ii, ny+4] = T(2) * temp_wall - temp[ii, ny+3]
-            temp[ii, ny+5] = T(2) * temp_wall - temp[ii, ny+2]
-            temp[ii, ny+6] = T(2) * temp_wall - temp[ii, ny+1]
+            temp[ii, ny+4] = c2 * temp_wall - temp[ii, ny+3]
+            temp[ii, ny+5] = c2 * temp_wall - temp[ii, ny+2]
+            temp[ii, ny+6] = c2 * temp_wall - temp[ii, ny+1]
         end
 
         if ix == 1 && iy == 1
-            corner_temp = T(2) * temp_wall - temp[4, 4]
-            ux[1, 1] = T(0.0); ux[2, 1] = T(0.0); ux[3, 1] = T(0.0)
-            ux[1, 2] = T(0.0); ux[2, 2] = T(0.0); ux[3, 2] = T(0.0)
-            ux[1, 3] = T(0.0); ux[2, 3] = T(0.0); ux[3, 3] = T(0.0)
-            uy[1, 1] = T(0.0); uy[2, 1] = T(0.0); uy[3, 1] = T(0.0)
-            uy[1, 2] = T(0.0); uy[2, 2] = T(0.0); uy[3, 2] = T(0.0)
-            uy[1, 3] = T(0.0); uy[2, 3] = T(0.0); uy[3, 3] = T(0.0)
-            temp[1, 1] = corner_temp; temp[2, 1] = corner_temp; temp[3, 1] = corner_temp
-            temp[1, 2] = corner_temp; temp[2, 2] = corner_temp; temp[3, 2] = corner_temp
-            temp[1, 3] = corner_temp; temp[2, 3] = corner_temp; temp[3, 3] = corner_temp
+            corner_temp = c2 * temp_wall - temp[4, 4]
+            ux[1, 1] = z
+            ux[2, 1] = z
+            ux[3, 1] = z
+            ux[1, 2] = z
+            ux[2, 2] = z
+            ux[3, 2] = z
+            ux[1, 3] = z
+            ux[2, 3] = z
+            ux[3, 3] = z
+            uy[1, 1] = z
+            uy[2, 1] = z
+            uy[3, 1] = z
+            uy[1, 2] = z
+            uy[2, 2] = z
+            uy[3, 2] = z
+            uy[1, 3] = z
+            uy[2, 3] = z
+            uy[3, 3] = z
+            temp[1, 1] = corner_temp
+            temp[2, 1] = corner_temp
+            temp[3, 1] = corner_temp
+            temp[1, 2] = corner_temp
+            temp[2, 2] = corner_temp
+            temp[3, 2] = corner_temp
+            temp[1, 3] = corner_temp
+            temp[2, 3] = corner_temp
+            temp[3, 3] = corner_temp
         elseif ix == 1 && iy == ny
-            corner_temp = T(2) * temp_wall - temp[4, ny+3]
-            ux[1, ny+4] = T(0.0); ux[2, ny+4] = T(0.0); ux[3, ny+4] = T(0.0)
-            ux[1, ny+5] = T(0.0); ux[2, ny+5] = T(0.0); ux[3, ny+5] = T(0.0)
-            ux[1, ny+6] = T(0.0); ux[2, ny+6] = T(0.0); ux[3, ny+6] = T(0.0)
-            uy[1, ny+4] = T(0.0); uy[2, ny+4] = T(0.0); uy[3, ny+4] = T(0.0)
-            uy[1, ny+5] = T(0.0); uy[2, ny+5] = T(0.0); uy[3, ny+5] = T(0.0)
-            uy[1, ny+6] = T(0.0); uy[2, ny+6] = T(0.0); uy[3, ny+6] = T(0.0)
-            temp[1, ny+4] = corner_temp; temp[2, ny+4] = corner_temp; temp[3, ny+4] = corner_temp
-            temp[1, ny+5] = corner_temp; temp[2, ny+5] = corner_temp; temp[3, ny+5] = corner_temp
-            temp[1, ny+6] = corner_temp; temp[2, ny+6] = corner_temp; temp[3, ny+6] = corner_temp
+            corner_temp = c2 * temp_wall - temp[4, ny+3]
+            ux[1, ny+4] = z
+            ux[2, ny+4] = z
+            ux[3, ny+4] = z
+            ux[1, ny+5] = z
+            ux[2, ny+5] = z
+            ux[3, ny+5] = z
+            ux[1, ny+6] = z
+            ux[2, ny+6] = z
+            ux[3, ny+6] = z
+            uy[1, ny+4] = z
+            uy[2, ny+4] = z
+            uy[3, ny+4] = z
+            uy[1, ny+5] = z
+            uy[2, ny+5] = z
+            uy[3, ny+5] = z
+            uy[1, ny+6] = z
+            uy[2, ny+6] = z
+            uy[3, ny+6] = z
+            temp[1, ny+4] = corner_temp
+            temp[2, ny+4] = corner_temp
+            temp[3, ny+4] = corner_temp
+            temp[1, ny+5] = corner_temp
+            temp[2, ny+5] = corner_temp
+            temp[3, ny+5] = corner_temp
+            temp[1, ny+6] = corner_temp
+            temp[2, ny+6] = corner_temp
+            temp[3, ny+6] = corner_temp
         elseif ix == nx && iy == 1
-            corner_temp = T(2) * temp_wall - temp[nx+3, 4]
-            ux[nx+4, 1] = T(0.0); ux[nx+5, 1] = T(0.0); ux[nx+6, 1] = T(0.0)
-            ux[nx+4, 2] = T(0.0); ux[nx+5, 2] = T(0.0); ux[nx+6, 2] = T(0.0)
-            ux[nx+4, 3] = T(0.0); ux[nx+5, 3] = T(0.0); ux[nx+6, 3] = T(0.0)
-            uy[nx+4, 1] = T(0.0); uy[nx+5, 1] = T(0.0); uy[nx+6, 1] = T(0.0)
-            uy[nx+4, 2] = T(0.0); uy[nx+5, 2] = T(0.0); uy[nx+6, 2] = T(0.0)
-            uy[nx+4, 3] = T(0.0); uy[nx+5, 3] = T(0.0); uy[nx+6, 3] = T(0.0)
-            temp[nx+4, 1] = corner_temp; temp[nx+5, 1] = corner_temp; temp[nx+6, 1] = corner_temp
-            temp[nx+4, 2] = corner_temp; temp[nx+5, 2] = corner_temp; temp[nx+6, 2] = corner_temp
-            temp[nx+4, 3] = corner_temp; temp[nx+5, 3] = corner_temp; temp[nx+6, 3] = corner_temp
+            corner_temp = c2 * temp_wall - temp[nx+3, 4]
+            ux[nx+4, 1] = z
+            ux[nx+5, 1] = z
+            ux[nx+6, 1] = z
+            ux[nx+4, 2] = z
+            ux[nx+5, 2] = z
+            ux[nx+6, 2] = z
+            ux[nx+4, 3] = z
+            ux[nx+5, 3] = z
+            ux[nx+6, 3] = z
+            uy[nx+4, 1] = z
+            uy[nx+5, 1] = z
+            uy[nx+6, 1] = z
+            uy[nx+4, 2] = z
+            uy[nx+5, 2] = z
+            uy[nx+6, 2] = z
+            uy[nx+4, 3] = z
+            uy[nx+5, 3] = z
+            uy[nx+6, 3] = z
+            temp[nx+4, 1] = corner_temp
+            temp[nx+5, 1] = corner_temp
+            temp[nx+6, 1] = corner_temp
+            temp[nx+4, 2] = corner_temp
+            temp[nx+5, 2] = corner_temp
+            temp[nx+6, 2] = corner_temp
+            temp[nx+4, 3] = corner_temp
+            temp[nx+5, 3] = corner_temp
+            temp[nx+6, 3] = corner_temp
         elseif ix == nx && iy == ny
-            corner_temp = T(2) * temp_wall - temp[nx+3, ny+3]
-            ux[nx+4, ny+4] = T(0.0); ux[nx+5, ny+4] = T(0.0); ux[nx+6, ny+4] = T(0.0)
-            ux[nx+4, ny+5] = T(0.0); ux[nx+5, ny+5] = T(0.0); ux[nx+6, ny+5] = T(0.0)
-            ux[nx+4, ny+6] = T(0.0); ux[nx+5, ny+6] = T(0.0); ux[nx+6, ny+6] = T(0.0)
-            uy[nx+4, ny+4] = T(0.0); uy[nx+5, ny+4] = T(0.0); uy[nx+6, ny+4] = T(0.0)
-            uy[nx+4, ny+5] = T(0.0); uy[nx+5, ny+5] = T(0.0); uy[nx+6, ny+5] = T(0.0)
-            uy[nx+4, ny+6] = T(0.0); uy[nx+5, ny+6] = T(0.0); uy[nx+6, ny+6] = T(0.0)
-            temp[nx+4, ny+4] = corner_temp; temp[nx+5, ny+4] = corner_temp; temp[nx+6, ny+4] = corner_temp
-            temp[nx+4, ny+5] = corner_temp; temp[nx+5, ny+5] = corner_temp; temp[nx+6, ny+5] = corner_temp
-            temp[nx+4, ny+6] = corner_temp; temp[nx+5, ny+6] = corner_temp; temp[nx+6, ny+6] = corner_temp
+            corner_temp = c2 * temp_wall - temp[nx+3, ny+3]
+            ux[nx+4, ny+4] = z
+            ux[nx+5, ny+4] = z
+            ux[nx+6, ny+4] = z
+            ux[nx+4, ny+5] = z
+            ux[nx+5, ny+5] = z
+            ux[nx+6, ny+5] = z
+            ux[nx+4, ny+6] = z
+            ux[nx+5, ny+6] = z
+            ux[nx+6, ny+6] = z
+            uy[nx+4, ny+4] = z
+            uy[nx+5, ny+4] = z
+            uy[nx+6, ny+4] = z
+            uy[nx+4, ny+5] = z
+            uy[nx+5, ny+5] = z
+            uy[nx+6, ny+5] = z
+            uy[nx+4, ny+6] = z
+            uy[nx+5, ny+6] = z
+            uy[nx+6, ny+6] = z
+            temp[nx+4, ny+4] = corner_temp
+            temp[nx+5, ny+4] = corner_temp
+            temp[nx+6, ny+4] = corner_temp
+            temp[nx+4, ny+5] = corner_temp
+            temp[nx+5, ny+5] = corner_temp
+            temp[nx+6, ny+5] = corner_temp
+            temp[nx+4, ny+6] = corner_temp
+            temp[nx+5, ny+6] = corner_temp
+            temp[nx+6, ny+6] = corner_temp
         end
 
-        if field.solid[ii, jj] == 1 || field.solid[ii+1, jj] == 1
-            field.ibm_x[ii, jj] += ux[ii, jj] * dx * dy / dt
-            ux[ii, jj] = T(0.0)
+        if solid[ii, jj] == solid_marker || solid[ii+1, jj] == solid_marker
+            ibm_x[ii, jj] += ux[ii, jj] * dx * dy / dt
+            ux[ii, jj] = z
         end
-        if field.solid[ii, jj] == 1 || field.solid[ii, jj+1] == 1
-            field.ibm_y[ii, jj] += uy[ii, jj] * dx * dy / dt
-            uy[ii, jj] = T(0.0)
+        if solid[ii, jj] == solid_marker || solid[ii, jj+1] == solid_marker
+            ibm_y[ii, jj] += uy[ii, jj] * dx * dy / dt
+            uy[ii, jj] = z
         end
-        if field.solid[ii, jj] == 1
+        if solid[ii, jj] == solid_marker
             temp[ii, jj] = temp_cylinder
         end
 
@@ -136,94 +215,107 @@ function compute_explicit_terms!(param::Parameters, field::Fields)
     dx = param.space.dx
     dy = param.space.dy
     dt = param.time.dt
-    T = param.Ttype
     T_in = param.cylinder.temp_wall
     ρ0 = param.fdm.ρ0
     dx2 = dx^2
     dy2 = dy^2
+    ux = field.ux
+    uy = field.uy
+    temp = field.temp
+    ux_s = field.ux_s
+    uy_s = field.uy_s
+    temp_s = field.temp_s
+    c8 = oftype(dx, 8)
+    c9 = oftype(dx, 9)
+    c12 = oftype(dx, 12)
+    c16 = oftype(dx, 16)
+    c30 = oftype(dx, 30)
+    c32 = oftype(dx, 32)
+    c96 = oftype(dx, 96)
+    c192 = oftype(dx, 192)
 
     Utils.Parallel.foraxes(param.dev, Int.(param.groupsize), (nx, ny)) do i, j
         ii = i + 3
         jj = j + 3
 
         adux_1 = (
-            (T(9) * (field.ux[ii-1, jj] + field.ux[ii, jj]) - (field.ux[ii-2, jj] + field.ux[ii+1, jj])) * (-field.ux[ii-1, jj] + field.ux[ii, jj]) / (T(32) * dx)
+            (c9 * (ux[ii-1, jj] + ux[ii, jj]) - (ux[ii-2, jj] + ux[ii+1, jj])) * (-ux[ii-1, jj] + ux[ii, jj]) / (c32 * dx)
             +
-            (T(9) * (field.ux[ii, jj] + field.ux[ii+1, jj]) - (field.ux[ii-1, jj] + field.ux[ii+2, jj])) * (-field.ux[ii, jj] + field.ux[ii+1, jj]) / (T(32) * dx)
+            (c9 * (ux[ii, jj] + ux[ii+1, jj]) - (ux[ii-1, jj] + ux[ii+2, jj])) * (-ux[ii, jj] + ux[ii+1, jj]) / (c32 * dx)
         )
         adux_2 = (
-            (T(9) * (field.ux[ii-2, jj] + field.ux[ii-1, jj]) - (field.ux[ii-3, jj] + field.ux[ii, jj])) * (-field.ux[ii-3, jj] + field.ux[ii, jj]) / (T(96) * dx)
+            (c9 * (ux[ii-2, jj] + ux[ii-1, jj]) - (ux[ii-3, jj] + ux[ii, jj])) * (-ux[ii-3, jj] + ux[ii, jj]) / (c96 * dx)
             +
-            (T(9) * (field.ux[ii+1, jj] + field.ux[ii+2, jj]) - (field.ux[ii, jj] + field.ux[ii+3, jj])) * (-field.ux[ii, jj] + field.ux[ii+3, jj]) / (T(96) * dx)
+            (c9 * (ux[ii+1, jj] + ux[ii+2, jj]) - (ux[ii, jj] + ux[ii+3, jj])) * (-ux[ii, jj] + ux[ii+3, jj]) / (c96 * dx)
         )
-        adux = (T(9) * adux_1 - adux_2) / T(8)
+        adux = (c9 * adux_1 - adux_2) / c8
 
         aduy_1 = (
-            (T(9) * (field.uy[ii, jj-1] + field.uy[ii+1, jj-1]) - (field.uy[ii-1, jj-1] + field.uy[ii+2, jj-1])) * (-field.ux[ii, jj-1] + field.ux[ii, jj]) / (T(32) * dy)
+            (c9 * (uy[ii, jj-1] + uy[ii+1, jj-1]) - (uy[ii-1, jj-1] + uy[ii+2, jj-1])) * (-ux[ii, jj-1] + ux[ii, jj]) / (c32 * dy)
             +
-            (T(9) * (field.uy[ii, jj] + field.uy[ii+1, jj]) - (field.uy[ii-1, jj] + field.uy[ii+2, jj])) * (-field.ux[ii, jj] + field.ux[ii, jj+1]) / (T(32) * dy)
+            (c9 * (uy[ii, jj] + uy[ii+1, jj]) - (uy[ii-1, jj] + uy[ii+2, jj])) * (-ux[ii, jj] + ux[ii, jj+1]) / (c32 * dy)
         )
         aduy_2 = (
-            (T(9) * (field.uy[ii, jj-2] + field.uy[ii+1, jj-2]) - (field.uy[ii-1, jj-2] + field.uy[ii+2, jj-2])) * (-field.ux[ii, jj-3] + field.ux[ii, jj]) / (T(96) * dy)
+            (c9 * (uy[ii, jj-2] + uy[ii+1, jj-2]) - (uy[ii-1, jj-2] + uy[ii+2, jj-2])) * (-ux[ii, jj-3] + ux[ii, jj]) / (c96 * dy)
             +
-            (T(9) * (field.uy[ii, jj+1] + field.uy[ii+1, jj+1]) - (field.uy[ii-1, jj+1] + field.uy[ii+2, jj+1])) * (-field.ux[ii, jj] + field.ux[ii, jj+3]) / (T(96) * dy)
+            (c9 * (uy[ii, jj+1] + uy[ii+1, jj+1]) - (uy[ii-1, jj+1] + uy[ii+2, jj+1])) * (-ux[ii, jj] + ux[ii, jj+3]) / (c96 * dy)
         )
-        aduy = (T(9) * aduy_1 - aduy_2) / T(8)
+        aduy = (c9 * aduy_1 - aduy_2) / c8
         adv = adux + aduy
 
-        difx = (-field.ux[ii+2, jj] + T(16) * field.ux[ii+1, jj] - T(30.0) * field.ux[ii, jj] + T(16) * field.ux[ii-1, jj] - field.ux[ii-2, jj]) / (T(12) * dx2)
-        dify = (-field.ux[ii, jj+2] + T(16) * field.ux[ii, jj+1] - T(30.0) * field.ux[ii, jj] + T(16) * field.ux[ii, jj-1] - field.ux[ii, jj-2]) / (T(12) * dy2)
+        difx = (-ux[ii+2, jj] + c16 * ux[ii+1, jj] - c30 * ux[ii, jj] + c16 * ux[ii-1, jj] - ux[ii-2, jj]) / (c12 * dx2)
+        dify = (-ux[ii, jj+2] + c16 * ux[ii, jj+1] - c30 * ux[ii, jj] + c16 * ux[ii, jj-1] - ux[ii, jj-2]) / (c12 * dy2)
         lap = difx + dify
 
-        temp_ij = field.temp[ii, jj]
-        field.ux_s[ii, jj] = field.ux[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap - β(temp_ij) * g * (temp_ij - T_in))
+        temp_ij = temp[ii, jj]
+        ux_s[ii, jj] = ux[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap - β(temp_ij) * g * (temp_ij - T_in))
 
         advx_1 = (
-            (T(9) * (field.ux[ii-1, jj] + field.ux[ii-1, jj+1]) - (field.ux[ii-1, jj-1] + field.ux[ii-1, jj+2])) * (-field.uy[ii-1, jj] + field.uy[ii, jj]) / (T(32) * dx)
+            (c9 * (ux[ii-1, jj] + ux[ii-1, jj+1]) - (ux[ii-1, jj-1] + ux[ii-1, jj+2])) * (-uy[ii-1, jj] + uy[ii, jj]) / (c32 * dx)
             +
-            (T(9) * (field.ux[ii, jj] + field.ux[ii, jj+1]) - (field.ux[ii, jj-1] + field.ux[ii, jj+2])) * (-field.uy[ii, jj] + field.uy[ii+1, jj]) / (T(32) * dx)
+            (c9 * (ux[ii, jj] + ux[ii, jj+1]) - (ux[ii, jj-1] + ux[ii, jj+2])) * (-uy[ii, jj] + uy[ii+1, jj]) / (c32 * dx)
         )
         advx_2 = (
-            (T(9) * (field.ux[ii-2, jj] + field.ux[ii-2, jj+1]) - (field.ux[ii-2, jj-1] + field.ux[ii-2, jj+2])) * (-field.uy[ii-3, jj] + field.uy[ii, jj]) / (T(96) * dx)
+            (c9 * (ux[ii-2, jj] + ux[ii-2, jj+1]) - (ux[ii-2, jj-1] + ux[ii-2, jj+2])) * (-uy[ii-3, jj] + uy[ii, jj]) / (c96 * dx)
             +
-            (T(9) * (field.ux[ii+1, jj] + field.ux[ii+1, jj+1]) - (field.ux[ii+1, jj-1] + field.ux[ii+1, jj+2])) * (-field.uy[ii, jj] + field.uy[ii+3, jj]) / (T(96) * dx)
+            (c9 * (ux[ii+1, jj] + ux[ii+1, jj+1]) - (ux[ii+1, jj-1] + ux[ii+1, jj+2])) * (-uy[ii, jj] + uy[ii+3, jj]) / (c96 * dx)
         )
-        advx = (T(9) * advx_1 - advx_2) / T(8)
+        advx = (c9 * advx_1 - advx_2) / c8
 
         advy_1 = (
-            (T(9) * (field.uy[ii, jj-1] + field.uy[ii, jj]) - (field.uy[ii, jj-2] + field.uy[ii, jj+1])) * (-field.uy[ii, jj-1] + field.uy[ii, jj]) / (T(32) * dy)
+            (c9 * (uy[ii, jj-1] + uy[ii, jj]) - (uy[ii, jj-2] + uy[ii, jj+1])) * (-uy[ii, jj-1] + uy[ii, jj]) / (c32 * dy)
             +
-            (T(9) * (field.uy[ii, jj] + field.uy[ii, jj+1]) - (field.uy[ii, jj-1] + field.uy[ii, jj+2])) * (-field.uy[ii, jj] + field.uy[ii, jj+1]) / (T(32) * dy)
+            (c9 * (uy[ii, jj] + uy[ii, jj+1]) - (uy[ii, jj-1] + uy[ii, jj+2])) * (-uy[ii, jj] + uy[ii, jj+1]) / (c32 * dy)
         )
         advy_2 = (
-            (T(9) * (field.uy[ii, jj-2] + field.uy[ii, jj-1]) - (field.uy[ii, jj-3] + field.uy[ii, jj])) * (-field.uy[ii, jj-3] + field.uy[ii, jj]) / (T(96) * dy)
+            (c9 * (uy[ii, jj-2] + uy[ii, jj-1]) - (uy[ii, jj-3] + uy[ii, jj])) * (-uy[ii, jj-3] + uy[ii, jj]) / (c96 * dy)
             +
-            (T(9) * (field.uy[ii, jj+1] + field.uy[ii, jj+2]) - (field.uy[ii, jj] + field.uy[ii, jj+3])) * (-field.uy[ii, jj] + field.uy[ii, jj+3]) / (T(96) * dy)
+            (c9 * (uy[ii, jj+1] + uy[ii, jj+2]) - (uy[ii, jj] + uy[ii, jj+3])) * (-uy[ii, jj] + uy[ii, jj+3]) / (c96 * dy)
         )
-        advy = (T(9) * advy_1 - advy_2) / T(8)
+        advy = (c9 * advy_1 - advy_2) / c8
         adv = advx + advy
 
-        difx = (-field.uy[ii+2, jj] + T(16) * field.uy[ii+1, jj] - T(30.0) * field.uy[ii, jj] + T(16) * field.uy[ii-1, jj] - field.uy[ii-2, jj]) / (T(12) * dx2)
-        dify = (-field.uy[ii, jj+2] + T(16) * field.uy[ii, jj+1] - T(30.0) * field.uy[ii, jj] + T(16) * field.uy[ii, jj-1] - field.uy[ii, jj-2]) / (T(12) * dy2)
+        difx = (-uy[ii+2, jj] + c16 * uy[ii+1, jj] - c30 * uy[ii, jj] + c16 * uy[ii-1, jj] - uy[ii-2, jj]) / (c12 * dx2)
+        dify = (-uy[ii, jj+2] + c16 * uy[ii, jj+1] - c30 * uy[ii, jj] + c16 * uy[ii, jj-1] - uy[ii, jj-2]) / (c12 * dy2)
         lap = difx + dify
-        field.uy_s[ii, jj] = field.uy[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap)
+        uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap)
 
         adtx = (
-            (-field.ux[ii-2, jj] + T(9) * field.ux[ii-1, jj] + T(9) * field.ux[ii, jj] - field.ux[ii+1, jj])
+            (-ux[ii-2, jj] + c9 * ux[ii-1, jj] + c9 * ux[ii, jj] - ux[ii+1, jj])
             *
-            (field.temp[ii-2, jj] - T(8) * field.temp[ii-1, jj] + T(8) * field.temp[ii+1, jj] - field.temp[ii+2, jj])
-        ) / (T(192) * dx)
+            (temp[ii-2, jj] - c8 * temp[ii-1, jj] + c8 * temp[ii+1, jj] - temp[ii+2, jj])
+        ) / (c192 * dx)
         adty = (
-            (-field.uy[ii, jj-2] + T(9) * field.uy[ii, jj-1] + T(9) * field.uy[ii, jj] - field.uy[ii, jj+1])
+            (-uy[ii, jj-2] + c9 * uy[ii, jj-1] + c9 * uy[ii, jj] - uy[ii, jj+1])
             *
-            (field.temp[ii, jj-2] - T(8) * field.temp[ii, jj-1] + T(8) * field.temp[ii, jj+1] - field.temp[ii, jj+2])
-        ) / (T(192) * dy)
+            (temp[ii, jj-2] - c8 * temp[ii, jj-1] + c8 * temp[ii, jj+1] - temp[ii, jj+2])
+        ) / (c192 * dy)
         adt = adtx + adty
 
-        difx = (-field.temp[ii+2, jj] + T(16) * field.temp[ii+1, jj] - T(30.0) * field.temp[ii, jj] + T(16) * field.temp[ii-1, jj] - field.temp[ii-2, jj]) / (T(12) * dx2)
-        dify = (-field.temp[ii, jj+2] + T(16) * field.temp[ii, jj+1] - T(30.0) * field.temp[ii, jj] + T(16) * field.temp[ii, jj-1] - field.temp[ii, jj-2]) / (T(12) * dy2)
+        difx = (-temp[ii+2, jj] + c16 * temp[ii+1, jj] - c30 * temp[ii, jj] + c16 * temp[ii-1, jj] - temp[ii-2, jj]) / (c12 * dx2)
+        dify = (-temp[ii, jj+2] + c16 * temp[ii, jj+1] - c30 * temp[ii, jj] + c16 * temp[ii, jj-1] - temp[ii, jj-2]) / (c12 * dy2)
         lap = difx + dify
-        field.temp_s[ii, jj] = temp_ij + dt * (-adt + α * lap)
+        temp_s[ii, jj] = temp_ij + dt * (-adt + α * lap)
     end
 end
 
@@ -240,14 +332,18 @@ function build_pressure_rhs!(param::Parameters, field::Fields)
     scale = param.fdm.ρ0 / param.time.dt
     dx = param.space.dx
     dy = param.space.dy
-    T = param.Ttype
+    rhs = field.rhs
+    ux_s = field.ux_s
+    uy_s = field.uy_s
+    c24 = oftype(dx, 24)
+    c27 = oftype(dx, 27)
     Utils.Parallel.foraxes(param.dev, Int.(param.groupsize), (nx, ny)) do i, j
         ii = i + 3
         jj = j + 3
-        field.rhs[i, j] = scale * (
-            (field.ux_s[ii-2, jj] - T(27) * field.ux_s[ii-1, jj] + T(27) * field.ux_s[ii, jj] - field.ux_s[ii+1, jj]) / (T(24) * dx)
+        rhs[i, j] = scale * (
+            (ux_s[ii-2, jj] - c27 * ux_s[ii-1, jj] + c27 * ux_s[ii, jj] - ux_s[ii+1, jj]) / (c24 * dx)
             +
-            (field.uy_s[ii, jj-2] - T(27) * field.uy_s[ii, jj-1] + T(27) * field.uy_s[ii, jj] - field.uy_s[ii, jj+1]) / (T(24) * dy)
+            (uy_s[ii, jj-2] - c27 * uy_s[ii, jj-1] + c27 * uy_s[ii, jj] - uy_s[ii, jj+1]) / (c24 * dy)
         )
     end
 end
@@ -265,12 +361,18 @@ function correct_velocity!(param::Parameters, field::Fields)
     scale = param.time.dt / param.fdm.ρ0
     dx = param.space.dx
     dy = param.space.dy
-    T = param.Ttype
+    ux = field.ux
+    uy = field.uy
+    ux_s = field.ux_s
+    uy_s = field.uy_s
+    p = field.p
+    c24 = oftype(dx, 24)
+    c27 = oftype(dx, 27)
     Utils.Parallel.foraxes(param.dev, Int.(param.groupsize), (nx, ny)) do i, j
         ii = i + 3
         jj = j + 3
-        field.ux[ii, jj] = field.ux_s[ii, jj] - scale * (field.p[ii-1, jj] - T(27) * field.p[ii, jj] + T(27) * field.p[ii+1, jj] - field.p[ii+2, jj]) / (T(24) * dx)
-        field.uy[ii, jj] = field.uy_s[ii, jj] - scale * (field.p[ii, jj-1] - T(27) * field.p[ii, jj] + T(27) * field.p[ii, jj+1] - field.p[ii, jj+2]) / (T(24) * dy)
+        ux[ii, jj] = ux_s[ii, jj] - scale * (p[ii-1, jj] - c27 * p[ii, jj] + c27 * p[ii+1, jj] - p[ii+2, jj]) / (c24 * dx)
+        uy[ii, jj] = uy_s[ii, jj] - scale * (p[ii, jj-1] - c27 * p[ii, jj] + c27 * p[ii, jj+1] - p[ii, jj+2]) / (c24 * dy)
     end
     field.temp .= field.temp_s
     velocity_boundary!(param, field.ux, field.uy, field.temp, field)

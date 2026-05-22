@@ -20,9 +20,11 @@ function solve_pressure_poisson!(
 )
     nx, ny = param.space.num_grids
     field.rhs .= param.fdm.pressure_solver.plan_f(field.rhs)
+    rhs = field.rhs
+    inv_laplacian = param.fdm.pressure_solver.inv_laplacian
 
     Utils.Parallel.foraxes(param.dev, Int.(param.groupsize), (nx, ny)) do i, j
-        field.rhs[i, j] *= param.fdm.pressure_solver.inv_laplacian[i, j]
+        rhs[i, j] *= inv_laplacian[i, j]
     end
     field.rhs .= param.fdm.pressure_solver.plan_f(field.rhs) * param.fdm.pressure_solver.inv_norm
 

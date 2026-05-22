@@ -9,6 +9,7 @@ export SpaceParameters, TimeParameters, FDMParameters
 export FFTPoissonSolver
 export Parameters, Fields
 export AbstractFFTBackendPlan, FFTWPlanBackend, CUFFTPlanBackend
+export ConstantProperty, PolynomialProperty
 
 abstract type AbstractFFTBackendPlan end
 """Pressure-solver backend based on `FFTW` plans for CPU arrays."""
@@ -191,6 +192,39 @@ end
 
 # ============================================================================================
 
+"""
+    ConstantProperty(value)
+
+GPU-friendly callable material-property model that always returns `value`.
+"""
+struct ConstantProperty{T<:AbstractFloat}
+    value::T
+end
+
+@inline function (p::ConstantProperty)(x)
+    return convert(typeof(x), p.value)
+end
+
+"""
+    PolynomialProperty(coeffs...)
+
+GPU-friendly callable polynomial model evaluated by `evalpoly`.
+
+Coefficients must be passed in ascending order:
+`c0, c1, c2, ...` for `c0 + c1*x + c2*x^2 + ...`.
+"""
+struct PolynomialProperty{T<:AbstractFloat,N}
+    coeffs::NTuple{N,T}
+end
+
+PolynomialProperty(coeffs::Vararg{T,N}) where {T<:AbstractFloat,N} = PolynomialProperty{T,N}(coeffs)
+
+@inline function (p::PolynomialProperty{T,N})(x) where {T<:AbstractFloat,N}
+    return evalpoly(x, p.coeffs)
+end
+
+# ============================================================================================
+
 struct CylinderParameters{T<:AbstractFloat}
     cx::T
     cy::T
@@ -234,8 +268,8 @@ struct Parameters{T<:AbstractFloat,I<:Integer,PS<:FFTPoissonSolver,Fμ,Fβ,D,AT}
         r::T;
         temp_wall::T=T(1.0),
         temp_cylinder::T=T(10.0),
-        μ=(x) -> ν,
-        β=(x) -> T(0.0),
+        μ=ConstantProperty(ν),
+        β=ConstantProperty(zero(T)),
         g::T=T(9.80665),
         groupsize::NTuple{2,I}=(I(16), I(16)),
         fftw_num_threads::I=I(Threads.nthreads()),
