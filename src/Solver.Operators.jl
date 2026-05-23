@@ -37,15 +37,24 @@ function velocity_boundary!(param::Parameters, ux, uy, temp, field)
             temp[2, jj] = temp_in[iy]
             temp[3, jj] = temp_in[iy]
         elseif ix == nx
-            ux[nx+4, jj] = ux[nx+4, jj] - um * dt * (-ux[nx+3, jj] + ux[nx+4, jj]) / dx
-            ux[nx+5, jj] = ux[nx+5, jj] - um * dt * (-ux[nx+4, jj] + ux[nx+5, jj]) / dx
-            ux[nx+6, jj] = ux[nx+6, jj] - um * dt * (-ux[nx+5, jj] + ux[nx+6, jj]) / dx
-            uy[nx+4, jj] = uy[nx+4, jj] - um * dt * (-uy[nx+3, jj] + uy[nx+4, jj]) / dx
-            uy[nx+5, jj] = uy[nx+5, jj] - um * dt * (-uy[nx+4, jj] + uy[nx+5, jj]) / dx
-            uy[nx+6, jj] = uy[nx+6, jj] - um * dt * (-uy[nx+5, jj] + uy[nx+6, jj]) / dx
-            temp[nx+4, jj] = temp[nx+4, jj] - um * dt * (-temp[nx+3, jj] + temp[nx+4, jj]) / dx
-            temp[nx+5, jj] = temp[nx+5, jj] - um * dt * (-temp[nx+4, jj] + temp[nx+5, jj]) / dx
-            temp[nx+6, jj] = temp[nx+6, jj] - um * dt * (-temp[nx+5, jj] + temp[nx+6, jj]) / dx
+            u4 = ux[nx+4, jj] - um * dt * (-ux[nx+3, jj] + ux[nx+4, jj]) / dx
+            u5 = ux[nx+5, jj] - um * dt * (-ux[nx+4, jj] + ux[nx+5, jj]) / dx
+            u6 = ux[nx+6, jj] - um * dt * (-ux[nx+5, jj] + ux[nx+6, jj]) / dx
+            ux[nx+4, jj] = u4
+            ux[nx+5, jj] = u5
+            ux[nx+6, jj] = u6
+            u4 = uy[nx+4, jj] - um * dt * (-uy[nx+3, jj] + uy[nx+4, jj]) / dx
+            u5 = uy[nx+5, jj] - um * dt * (-uy[nx+4, jj] + uy[nx+5, jj]) / dx
+            u6 = uy[nx+6, jj] - um * dt * (-uy[nx+5, jj] + uy[nx+6, jj]) / dx
+            uy[nx+4, jj] = u4
+            uy[nx+5, jj] = u5
+            uy[nx+6, jj] = u6
+            t4 = temp[nx+4, jj] - um * dt * (-temp[nx+3, jj] + temp[nx+4, jj]) / dx
+            t5 = temp[nx+5, jj] - um * dt * (-temp[nx+4, jj] + temp[nx+5, jj]) / dx
+            t6 = temp[nx+6, jj] - um * dt * (-temp[nx+5, jj] + temp[nx+6, jj]) / dx
+            temp[nx+4, jj] = t4
+            temp[nx+5, jj] = t5
+            temp[nx+6, jj] = t6
         end
 
         if iy == 1
@@ -225,6 +234,8 @@ function compute_explicit_terms!(param::Parameters, field::Fields)
     ux_s = field.ux_s
     uy_s = field.uy_s
     temp_s = field.temp_s
+    c2 = oftype(dx, 2)
+    c6 = oftype(dx, 6)
     c8 = oftype(dx, 8)
     c9 = oftype(dx, 9)
     c12 = oftype(dx, 12)
@@ -268,7 +279,10 @@ function compute_explicit_terms!(param::Parameters, field::Fields)
         lap = difx + dify
 
         temp_ij = temp[ii, jj]
-        ux_s[ii, jj] = ux[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap - β(temp_ij) * g * (temp_ij - T_in))
+        temp_x = (-temp[ii-1, jj] + c9 * temp[ii, jj] + c9 * temp[ii+1, jj] - temp[ii+2, jj]) / c16
+        temp_y = (-temp[ii, jj-1] + c9 * temp[ii, jj] + c9 * temp[ii, jj+1] - temp[ii, jj+2]) / c16
+
+        ux_s[ii, jj] = ux[ii, jj] + dt * (-adv + μ(temp_x) / ρ0 * lap + β(temp_x) * g * (temp_x - T_in))
 
         advx_1 = (
             (c9 * (ux[ii-1, jj] + ux[ii-1, jj+1]) - (ux[ii-1, jj-1] + ux[ii-1, jj+2])) * (-uy[ii-1, jj] + uy[ii, jj]) / (c32 * dx)
@@ -298,18 +312,30 @@ function compute_explicit_terms!(param::Parameters, field::Fields)
         difx = (-uy[ii+2, jj] + c16 * uy[ii+1, jj] - c30 * uy[ii, jj] + c16 * uy[ii-1, jj] - uy[ii-2, jj]) / (c12 * dx2)
         dify = (-uy[ii, jj+2] + c16 * uy[ii, jj+1] - c30 * uy[ii, jj] + c16 * uy[ii, jj-1] - uy[ii, jj-2]) / (c12 * dy2)
         lap = difx + dify
-        uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + μ(temp_ij) / ρ0 * lap)
+        uy_s[ii, jj] = uy[ii, jj] + dt * (-adv + μ(temp_y) / ρ0 * lap)
 
-        adtx = (
-            (-ux[ii-2, jj] + c9 * ux[ii-1, jj] + c9 * ux[ii, jj] - ux[ii+1, jj])
-            *
-            (temp[ii-2, jj] - c8 * temp[ii-1, jj] + c8 * temp[ii+1, jj] - temp[ii+2, jj])
-        ) / (c192 * dx)
-        adty = (
-            (-uy[ii, jj-2] + c9 * uy[ii, jj-1] + c9 * uy[ii, jj] - uy[ii, jj+1])
-            *
-            (temp[ii, jj-2] - c8 * temp[ii, jj-1] + c8 * temp[ii, jj+1] - temp[ii, jj+2])
-        ) / (c192 * dy)
+        adtx_1 = (
+            ux[ii, jj] * (temp[ii+1, jj] - temp[ii, jj]) / (c2 * dx)
+            +
+            ux[ii-1, jj] * (temp[ii, jj] - temp[ii-1, jj]) / (c2 * dx)
+        )
+        adtx_2 = (
+            ux[ii+1, jj] * (temp[ii+3, jj] - temp[ii, jj]) / (c6 * dx)
+            +
+            ux[ii-2, jj] * (temp[ii, jj] - temp[ii-3, jj]) / (c6 * dx)
+        )
+        adtx = (c9 * adtx_1 - adtx_2) / c8
+        adty_1 = (
+            uy[ii, jj] * (temp[ii, jj+1] - temp[ii, jj]) / (c2 * dy)
+            +
+            uy[ii, jj-1] * (temp[ii, jj] - temp[ii, jj-1]) / (c2 * dy)
+        )
+        adty_2 = (
+            uy[ii, jj+1] * (temp[ii, jj+3] - temp[ii, jj]) / (c6 * dy)
+            +
+            uy[ii, jj-2] * (temp[ii, jj] - temp[ii, jj-3]) / (c6 * dy)
+        )
+        adty = (c9 * adty_1 - adty_2) / c8
         adt = adtx + adty
 
         difx = (-temp[ii+2, jj] + c16 * temp[ii+1, jj] - c30 * temp[ii, jj] + c16 * temp[ii-1, jj] - temp[ii-2, jj]) / (c12 * dx2)
