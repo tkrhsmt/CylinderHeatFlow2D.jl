@@ -268,7 +268,7 @@ struct Parameters{T<:AbstractFloat,I<:Integer,PS<:FFTPoissonSolver,Fμ,Fβ,D,AT}
         r::T;
         temp_wall::T=T(1.0),
         temp_cylinder::T=T(10.0),
-        μ=ConstantProperty(ν),
+        μ=ConstantProperty(ν)/ρ,
         β=ConstantProperty(zero(T)),
         g::T=T(9.80665),
         groupsize::NTuple{2,I}=(I(16), I(16)),
